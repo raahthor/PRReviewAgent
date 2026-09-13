@@ -1,14 +1,27 @@
-from fastapi import APIRouter, Header, HTTPException, Depends
+from fastapi import APIRouter, Depends, Header, HTTPException
+
 from app.config import settings
-from app.services.github import fetch_diff
+from app.services.github import fetch_review_context
 
-router = APIRouter()
+router = APIRouter(prefix="/reviews", tags=["reviews"])
 
-def verify_api_key(x_api_key: str = Header(...)):
+
+def verify_api_key(
+    x_api_key: str = Header(...),
+) -> None:
     if x_api_key != settings.api_secret_key:
-        raise HTTPException(status_code=401, detail="Invalid API key")
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid API key",
+        )
 
-@router.post("/review")
-async def review_pr(repo: str, pr_number: int, _: None = Depends(verify_api_key)):
-    diff = await fetch_diff(repo, pr_number)
-    return {"diff_preview": diff[:500]}
+
+@router.post("/")
+async def review_pr(
+    repo: str,
+    pr_number: int,
+    _: None = Depends(verify_api_key),
+):
+    context = await fetch_review_context(repo, pr_number)
+
+    return context
