@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 
 from app.config import settings
 from app.services.github import fetch_review_context
+from app.services.ai import review_code
 
 router = APIRouter(prefix="/reviews", tags=["reviews"])
 
@@ -23,5 +24,5 @@ async def review_pr(
     _: None = Depends(verify_api_key),
 ):
     context = await fetch_review_context(repo, pr_number)
-
-    return context
+    review = await review_code(context, repo=repo, head_sha=context["pr"]["head_sha"])
+    return review
