@@ -1,9 +1,10 @@
 from google import genai
-from google.genai import types
+from google.genai import types, errors
 
 from app.core.config import settings
 from app.schemas.review import CodeReview
 from app.tools.github import create_github_tools
+from app.core.exceptions import AIError
 
 client = genai.Client(api_key=settings.gemini_api_key)
 
@@ -69,16 +70,26 @@ async def review_code(context: dict, repo: str, head_sha: str) -> CodeReview:
 
     tools = [*create_github_tools(repo=repo, head_sha=head_sha)]
 
-    chat = client.aio.chats.create(
-        model=GEMINI_MODEL,
-        config=types.GenerateContentConfig(
-            system_instruction=SYSTEM_INSTRUCTION,
-            response_mime_type="application/json",
-            response_schema=CodeReview,
-            tools=tools,
-        ),
-    )
+    try:
+        chat = client.aio.chats.create(
+            model=GEMINI_MODEL,
+            config=types.GenerateContentConfig(
+                system_instruction=SYSTEM_INSTRUCTION,
+                response_mime_type="application/json",
+                response_schema=CodeReview,
+                tools=tools,
+            ),
+        )
 
-    response = await chat.send_message(str(context))
+        response = await chat.send_message(str(context))
 
-    return CodeReview.model_validate_json(response.text)
+        return CodeReview.model_validate_json(response.text)
+    except errors.APIError as exc:
+        raise AIError(
+            message=f"AI request failed: {exc.message}",
+        ) from exc
+
+    except Exception as exc:
+        raise AIError(
+            message="AI review failed",
+        ) from exc
