@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, Header, HTTPException
 
-from app.config import settings
+from app.core.config import settings
 from app.services.github import fetch_review_context
 from app.services.ai import review_code
 

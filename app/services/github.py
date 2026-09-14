@@ -1,8 +1,10 @@
 import httpx
 
-from app.config import settings
+from app.core.config import settings
+from app.core.exceptions import GitHubError
 
 GITHUB_API = "https://api.github.com"
+GITHUB_TIMEOUT = 10.0
 
 
 def get_headers() -> dict[str, str]:
@@ -21,15 +23,20 @@ def get_headers() -> dict[str, str]:
 async def fetch_pr(repo: str, pr_number: int) -> dict:
     url = f"{GITHUB_API}/repos/{repo}/pulls/{pr_number}"
 
-    async with httpx.AsyncClient() as client:
-        response = await client.get(
-            url,
-            headers=get_headers(),
-        )
+    try:
+        async with httpx.AsyncClient(timeout=GITHUB_TIMEOUT) as client:
+            response = await client.get(
+                url,
+                headers=get_headers(),
+            )
+            response.raise_for_status()
+            return response.json()
 
-        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        raise GitHubError(f"GitHub returned status {exc.response.status_code}") from exc
 
-        return response.json()
+    except httpx.RequestError as exc:
+        raise GitHubError("Failed to connect to GitHub") from exc
 
 
 async def fetch_changed_files(
@@ -38,15 +45,20 @@ async def fetch_changed_files(
 ) -> list[dict]:
     url = f"{GITHUB_API}/repos/{repo}/pulls/{pr_number}/files"
 
-    async with httpx.AsyncClient() as client:
-        response = await client.get(
-            url,
-            headers=get_headers(),
-        )
+    try:
+        async with httpx.AsyncClient(timeout=GITHUB_TIMEOUT) as client:
+            response = await client.get(
+                url,
+                headers=get_headers(),
+            )
+            response.raise_for_status()
+            return response.json()
 
-        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        raise GitHubError(f"GitHub returned status {exc.response.status_code}") from exc
 
-        return response.json()
+    except httpx.RequestError as exc:
+        raise GitHubError("Failed to connect to GitHub") from exc
 
 
 async def fetch_file_content(
@@ -59,16 +71,20 @@ async def fetch_file_content(
     headers = get_headers()
     headers["Accept"] = "application/vnd.github.raw+json"
 
-    async with httpx.AsyncClient() as client:
-        response = await client.get(
-            url,
-            headers=headers,
-            params={"ref": ref},
-        )
+    try:
+        async with httpx.AsyncClient(timeout=GITHUB_TIMEOUT) as client:
+            response = await client.get(
+                url,
+                headers=headers,
+                params={"ref": ref},
+            )
+            response.raise_for_status()
+            return response.text
+    except httpx.HTTPStatusError as exc:
+        raise GitHubError(f"GitHub returned status {exc.response.status_code}") from exc
 
-        response.raise_for_status()
-
-        return response.text
+    except httpx.RequestError as exc:
+        raise GitHubError("Failed to connect to GitHub") from exc
 
 
 async def fetch_review_context(

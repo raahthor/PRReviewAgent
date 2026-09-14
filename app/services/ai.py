@@ -1,7 +1,7 @@
 from google import genai
 from google.genai import types
 
-from app.config import settings
+from app.core.config import settings
 from app.schemas.review import CodeReview
 from app.tools.github import create_github_tools
 
