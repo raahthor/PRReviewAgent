@@ -2,37 +2,24 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from app.api import review
-from app.core.exceptions import GitHubError, AIError
+from app.core.exceptions import AppError
 
 app = FastAPI(title="PR Review Agent")
 
 
-@app.exception_handler(GitHubError)
-async def github_error_handler(
+@app.exception_handler(AppError)
+async def app_error_handler(
     _request: Request,
-    exc: GitHubError,
+    exc: AppError,
 ):
     return JSONResponse(
         status_code=exc.status_code,
         content={
-            "error": "github_error",
+            "error": exc.__class__.__name__,
             "message": exc.message,
         },
     )
 
-
-@app.exception_handler(AIError)
-async def ai_error_handler(
-    _request: Request,
-    exc: AIError,
-):
-    return JSONResponse(
-        status_code=502,
-        content={
-            "error": "ai_error",
-            "message": exc.message,
-        },
-    )
 
 app.include_router(review.router)
 

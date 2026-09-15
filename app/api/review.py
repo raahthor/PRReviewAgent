@@ -1,8 +1,10 @@
 from fastapi import APIRouter, Depends, Header, HTTPException
+import asyncio
 
 from app.core.config import settings
 from app.services.github import fetch_review_context
 from app.services.ai import review_code
+from app.core.exceptions import ReviewError
 
 router = APIRouter(prefix="/reviews", tags=["reviews"])
 
@@ -23,6 +25,15 @@ async def review_pr(
     pr_number: int,
     _: None = Depends(verify_api_key),
 ):
-    context = await fetch_review_context(repo, pr_number)
-    review = await review_code(context, repo=repo, head_sha=context["pr"]["head_sha"])
-    return review
+    try:
+        async with asyncio.timeout(settings.review_timeout):
+            context = await fetch_review_context(repo, pr_number)
+
+            return await review_code(
+                context=context,
+                repo=repo,
+                head_sha=context["pr"]["head_sha"],
+            )
+
+    except TimeoutError as exc:
+        raise ReviewError(message="Review timed out", status_code=502) from exc

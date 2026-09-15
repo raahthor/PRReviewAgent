@@ -1,19 +1,19 @@
 class AppError(Exception):
-    """Base exception for application errors."""
+    """Base exception for expected application errors."""
+
+    def __init__(self, message: str, status_code: int = 500):
+        self.message = message
+        self.status_code = status_code
+        super().__init__(message)
 
 
 class GitHubError(AppError):
     """Raised when a GitHub operation fails."""
 
-    def __init__(self, status_code: int, message: str):
-        self.status_code = status_code
-        self.message = message
-        super().__init__(message)
-
 
 class AIError(AppError):
     """Raised when an AI operation fails."""
 
-    def __init__(self, message: str):
-        self.message = message
-        super().__init__(message)
+
+class ReviewError(AppError):
+    """Raised when a review operation fails."""

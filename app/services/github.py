@@ -62,7 +62,13 @@ async def fetch_file_content(
                 params={"ref": ref},
             )
             response.raise_for_status()
-            return response.text
+            content = response.text
+            if len(content) > settings.max_file_size:
+                raise GitHubError(
+                    status_code=413,
+                    message=f"File is too large to retrieve: {path}",
+                )
+            return content
 
     except httpx.HTTPStatusError as exc:
         raise GitHubError(

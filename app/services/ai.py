@@ -78,6 +78,9 @@ async def review_code(context: dict, repo: str, head_sha: str) -> CodeReview:
                 response_mime_type="application/json",
                 response_schema=CodeReview,
                 tools=tools,
+                automatic_function_calling=types.AutomaticFunctionCallingConfig(
+                    maximum_remote_calls=settings.max_tool_calls
+                ),
             ),
         )
 
@@ -87,9 +90,11 @@ async def review_code(context: dict, repo: str, head_sha: str) -> CodeReview:
     except errors.APIError as exc:
         raise AIError(
             message=f"AI request failed: {exc.message}",
+            status_code=502
         ) from exc
 
     except Exception as exc:
         raise AIError(
             message="AI review failed",
+            status_code=502
         ) from exc
