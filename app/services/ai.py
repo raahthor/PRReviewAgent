@@ -9,7 +9,6 @@ from app.core.exceptions import AIError
 client = genai.Client(api_key=settings.gemini_api_key)
 
 GEMINI_MODEL = "gemini-3.1-flash-lite"
-EMBEDDING_MODEL = "gemini-embedding-001"
 
 SYSTEM_INSTRUCTION = """
 You are a senior software engineer performing code reviews on GitHub pull requests.
