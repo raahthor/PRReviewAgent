@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends, Header, HTTPException
 import asyncio
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.db.database import get_db
 from app.core.config import settings
 from app.services.github import fetch_review_context
 from app.services.ai import review_code
@@ -23,6 +25,7 @@ def verify_api_key(
 async def review_pr(
     repo: str,
     pr_number: int,
+    db: AsyncSession = Depends(get_db),
     _: None = Depends(verify_api_key),
 ):
     try:
