@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from app.api import review
+from app.api import review, sync
 from app.core.exceptions import AppError
 
 app = FastAPI(title="PR Review Agent")
@@ -22,6 +22,7 @@ async def app_error_handler(
 
 
 app.include_router(review.router)
+app.include_router(sync.router)
 
 
 @app.get("/health")

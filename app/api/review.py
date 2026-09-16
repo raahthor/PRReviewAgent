@@ -6,6 +6,7 @@ from app.db.database import get_db
 from app.core.config import settings
 from app.services.github import fetch_review_context
 from app.services.ai import review_code
+from app.services.sync import sync_repo
 from app.core.exceptions import ReviewError
 
 router = APIRouter(prefix="/reviews", tags=["reviews"])
@@ -21,7 +22,7 @@ def verify_api_key(
         )
 
 
-@router.post("/")
+@router.post("")
 async def review_pr(
     repo: str,
     pr_number: int,
@@ -31,11 +32,20 @@ async def review_pr(
     try:
         async with asyncio.timeout(settings.review_timeout):
             context = await fetch_review_context(repo, pr_number)
+            head_sha = context["pr"]["head_sha"]
 
+            # 1. Sync repo before AI review
+            await sync_repo(
+                db=db,
+                repo_url=repo,
+                commit_sha=head_sha,
+            )
+
+            # 2. Run AI review
             return await review_code(
                 context=context,
                 repo=repo,
-                head_sha=context["pr"]["head_sha"],
+                head_sha=head_sha,
             )
 
     except TimeoutError as exc:
