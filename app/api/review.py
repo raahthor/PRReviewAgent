@@ -46,6 +46,7 @@ async def review_pr(
                 context=context,
                 repo=repo,
                 head_sha=head_sha,
+                db=db,
             )
 
     except TimeoutError as exc:
