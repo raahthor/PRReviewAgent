@@ -74,6 +74,14 @@ async def download_repository(
     return files
 
 
+async def get_branch_sha(repo: str, branch: str) -> str:
+    url = f"{GITHUB_API}/repos/{repo}/commits/{branch}"
+    async with _github_client() as client:
+        response = await client.get(url, headers=get_headers())
+        response.raise_for_status()
+        return response.json()["sha"]
+
+
 async def fetch_pr(repo: str, pr_number: int) -> dict:
     url = f"{GITHUB_API}/repos/{repo}/pulls/{pr_number}"
 
