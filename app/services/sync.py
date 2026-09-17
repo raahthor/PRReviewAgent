@@ -27,9 +27,16 @@ IGNORED_DIRECTORIES = {
 
 def should_index(path: str) -> bool:
     p = PurePosixPath(path)
-    return p.suffix in SUPPORTED_EXTENSIONS and not any(
-        d in IGNORED_DIRECTORIES for d in p.parts
-    )
+
+    # skip unsupported file ext
+    if p.suffix not in SUPPORTED_EXTENSIONS:
+        return False
+
+    # skip files inside ignored dir
+    for part in p.parts:
+        if part in IGNORED_DIRECTORIES:
+            return False
+    return True
 
 
 async def get_repo(db: AsyncSession, repo_url: str) -> Repo | None:
@@ -43,19 +50,21 @@ async def _index_files(
     commit_sha: str,
     files: dict[str, str],
 ) -> None:
-    """Extracts symbols, generates embeddings concurrently, and adds records to session."""
-    pending: list[tuple[str, Symbol]] = [
-        (file_path, symbol)
-        for file_path, content in files.items()
-        for symbol in extract_symbols(file_path=file_path, content=content)
-    ]
+
+    # 1: extract all symbols from all files
+    pending: list[tuple[str, Symbol]] = []
+    for file_path, content in files.items():
+        for symbol in extract_symbols(file_path=file_path, content=content):
+            pending.append((file_path, symbol))
 
     if not pending:
         return
 
+    # 2: generate embeddings for all symbols concurrently
+    # using semaphore to limit how many requests hit the Gemini API at the same time
     sem = asyncio.Semaphore(10)
 
-    async def embed_with_limit(file_path: str, symbol: Symbol) -> list[float]:
+    async def embed_one(file_path: str, symbol: Symbol) -> list[float]:
         text = (
             f"File: {file_path}\n"
             f"Type: {symbol.symbol_type}\n"
@@ -65,12 +74,16 @@ async def _index_files(
         async with sem:
             return await generate_embedding(text)
 
+    # asyncio.gather runs all embed_one calls concurrently like Promise.all
     embeddings = await asyncio.gather(
-        *(embed_with_limit(file_path, symbol) for file_path, symbol in pending)
+        *[embed_one(file_path, symbol) for file_path, symbol in pending]
     )
 
-    db.add_all(
-        [
+    # Step 3: Build and insert DB records.
+    # pending[i] and embeddings[i] correspond to the same symbol.
+    records = []
+    for i, (file_path, symbol) in enumerate(pending):
+        records.append(
             RepoTree(
                 repo_id=repo_id,
                 commit_sha=commit_sha,
@@ -78,28 +91,40 @@ async def _index_files(
                 name=symbol.name,
                 symbol_type=symbol.symbol_type,
                 signature=symbol.signature,
-                embedding=embedding,
+                embedding=embeddings[i],
             )
-            for (file_path, symbol), embedding in zip(pending, embeddings)
-        ]
-    )
+        )
+
+    db.add_all(records)
 
 
 async def initial_sync(db: AsyncSession, repo: Repo, commit_sha: str) -> None:
+
+    # download repo at this commit
     raw_files = await download_repository(repo=repo.repo_url, commit_sha=commit_sha)
-    files = {path: content for path, content in raw_files.items() if should_index(path)}
-    print("here")
+
+    # keeping files we can parse and index
+    files = {}
+    for path, content in raw_files.items():
+        if should_index(path):
+            files[path] = content
+
+    # clear any previously indexed symbols for this repo (safe to redo)
     await db.execute(delete(RepoTree).where(RepoTree.repo_id == repo.repo_id))
+
     await _index_files(db=db, repo_id=repo.repo_id, commit_sha=commit_sha, files=files)
 
 
 async def incremental_sync(db: AsyncSession, repo: Repo, commit_sha: str) -> None:
+    # fetches changed files between two commits and re indexes them
+
     changed_files = await compare_commits(
         repo=repo.repo_url,
         base_sha=repo.last_indexed_sha,
         head_sha=commit_sha,
     )
 
+    # collect which file paths to delete and which to re fetch
     delete_paths = set()
     fetch_paths = []
 
@@ -108,16 +133,19 @@ async def incremental_sync(db: AsyncSession, repo: Repo, commit_sha: str) -> Non
         if not should_index(filename):
             continue
 
+        # delete the current path to re index it
         delete_paths.add(filename)
 
+        # if the file was renamed, also delete the old path
         prev_filename = item.get("previous_filename")
         if prev_filename and should_index(prev_filename):
             delete_paths.add(prev_filename)
 
+        # removed files should be deleted but not re fetched
         if item.get("status") != "removed":
             fetch_paths.append(filename)
 
-    # 1. Single batch delete for all touched paths
+    # 1: delete stale symbols in one query
     if delete_paths:
         await db.execute(
             delete(RepoTree).where(
@@ -126,19 +154,22 @@ async def incremental_sync(db: AsyncSession, repo: Repo, commit_sha: str) -> Non
             )
         )
 
-    # 2. Fetch and index updated contents for active files
+    # 2: fetch and re index changed files
     if fetch_paths:
+        # fetch all file contents concurrently
         contents = await asyncio.gather(
-            *(
+            *[
                 fetch_file_content(repo.repo_url, path, commit_sha)
                 for path in fetch_paths
-            )
+            ]
         )
-        files = {
-            path: content
-            for path, content in zip(fetch_paths, contents)
-            if content is not None
-        }
+
+        # pair each path back with its content, skipping any failed
+        files = {}
+        for path, content in zip(fetch_paths, contents):
+            if content is not None:
+                files[path] = content
+
         await _index_files(
             db=db, repo_id=repo.repo_id, commit_sha=commit_sha, files=files
         )
@@ -151,18 +182,22 @@ async def sync_repo(
 ) -> None:
     repo = await get_repo(db, repo_url)
 
+    # if it doesn't exist yet, create it
     if repo is None:
         repo = Repo(repo_url=repo_url)
         db.add(repo)
-        await db.flush()
+        await db.flush()  # assigns repo.repo_id without committing
 
+    # return if upto date
     if repo.last_indexed_sha == commit_sha:
         return
 
     try:
         if not repo.last_indexed_sha:
+            # first time sync
             await initial_sync(db=db, repo=repo, commit_sha=commit_sha)
         else:
+            # sync what changed, in existing repo
             await incremental_sync(db=db, repo=repo, commit_sha=commit_sha)
 
         repo.last_indexed_sha = commit_sha

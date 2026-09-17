@@ -20,11 +20,16 @@ def get_headers() -> dict[str, str]:
         headers["Authorization"] = f"Bearer {settings.github_token}"
     return headers
 
+
 @contextlib.asynccontextmanager
-async def _github_client(timeout: float = GITHUB_TIMEOUT, follow_redirects: bool = True):
-    """Reusable async client context that maps httpx errors to GitHubError."""
+async def _github_client(
+    timeout: float = GITHUB_TIMEOUT, follow_redirects: bool = True
+):
+    # reusable async client context that maps httpx errors to GitHubError
     try:
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=follow_redirects) as client:
+        async with httpx.AsyncClient(
+            timeout=timeout, follow_redirects=follow_redirects
+        ) as client:
             yield client
     except httpx.HTTPStatusError as exc:
         raise GitHubError(
@@ -44,7 +49,7 @@ async def download_repository(
 ) -> dict[str, str]:
     url = f"{GITHUB_API}/repos/{repo}/zipball/{commit_sha}"
 
-    # Use a 60s timeout for downloading repository archives
+    # 60s timeout for downloading repository archives
     async with _github_client(timeout=60.0) as client:
         response = await client.get(url, headers=get_headers())
         response.raise_for_status()
