@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import get_db
 from app.core.config import settings
-from app.services.github import fetch_review_context, get_branch_sha
+from app.services.github import fetch_review_context, get_main_sha
 from app.services.ai import review_code
 from app.services.sync import sync_repo
 from app.core.exceptions import ReviewError
@@ -34,8 +34,7 @@ async def review_pr(
 
             context = await fetch_review_context(repo, pr_number)
             head_sha = context["pr"]["head_sha"]  # PR branch, for reviewing the diff
-            base_branch = context["pr"]["base_branch"]  # main
-            main_sha = await get_branch_sha(repo, base_branch)
+            main_sha = await get_main_sha(repo)
 
             # 1: sync repo before AI review
             await sync_repo(

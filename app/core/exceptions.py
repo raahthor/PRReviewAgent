@@ -17,3 +17,6 @@ class AIError(AppError):
 
 class ReviewError(AppError):
     """Raised when a review operation fails."""
+
+class SyncError(AppError):
+    """Raised when a review operation fails."""

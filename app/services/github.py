@@ -74,10 +74,16 @@ async def download_repository(
     return files
 
 
-async def get_branch_sha(repo: str, branch: str) -> str:
-    url = f"{GITHUB_API}/repos/{repo}/commits/{branch}"
+async def get_main_sha(repo: str) -> str:
+    url = f"{GITHUB_API}/repos/{repo}"
     async with _github_client() as client:
         response = await client.get(url, headers=get_headers())
+        response.raise_for_status()
+        default_branch = response.json()["default_branch"]
+
+    ref_url = f"{GITHUB_API}/repos/{repo}/commits/{default_branch}"
+    async with _github_client() as client:
+        response = await client.get(ref_url, headers=get_headers())
         response.raise_for_status()
         return response.json()["sha"]
 
