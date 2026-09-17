@@ -79,7 +79,7 @@ async def _index_files(
         *[embed_one(file_path, symbol) for file_path, symbol in pending]
     )
 
-    # Step 3: Build and insert DB records.
+    # 3: build and insert DB records.
     # pending[i] and embeddings[i] correspond to the same symbol.
     records = []
     for i, (file_path, symbol) in enumerate(pending):

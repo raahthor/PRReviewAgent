@@ -25,12 +25,12 @@ def get_headers() -> dict[str, str]:
 async def _github_client(
     timeout: float = GITHUB_TIMEOUT, follow_redirects: bool = True
 ):
-    # reusable async client context that maps httpx errors to GitHubError
+    # this is a reusable async context manager, works like a try/finally wrapper
     try:
         async with httpx.AsyncClient(
             timeout=timeout, follow_redirects=follow_redirects
         ) as client:
-            yield client
+            yield client  # `client` is what gets returned inside the `async with` block
     except httpx.HTTPStatusError as exc:
         raise GitHubError(
             status_code=exc.response.status_code,
@@ -59,9 +59,16 @@ async def download_repository(
         for info in archive.infolist():
             if info.is_dir():
                 continue
-            path = "/".join(info.filename.split("/")[1:])
+
+            # GitHub zips have a top level folder like "owner-repo-abc123/"
+            # we strip that prefix so paths look like "src/main.py" not "owner-repo-abc123/src/main.py"
+            # [1:] drops the first element, then re join with "/"
+            parts = info.filename.split("/")
+            path = "/".join(parts[1:])
+
             if not path:
                 continue
+
             files[path] = archive.read(info).decode("utf-8", errors="ignore")
 
     return files
@@ -105,6 +112,8 @@ async def fetch_file_content(
 ) -> str:
     url = f"{GITHUB_API}/repos/{repo}/contents/{path}"
 
+    # start with the standard GitHub headers, then override "Accept" for raw file content
+    # **get_headers() is like JS's spread
     headers = {
         **get_headers(),
         "Accept": "application/vnd.github.raw+json",
