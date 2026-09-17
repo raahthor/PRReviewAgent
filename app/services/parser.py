@@ -24,9 +24,10 @@ LANGUAGES = {
     ".tsx": Language(ts_typescript.language_tsx()),
 }
 
-# Pre-instantiate parsers once rather than recreating per file
+# pre instantiate parsers once so they're reused across all files
 PARSERS = {ext: Parser(lang) for ext, lang in LANGUAGES.items()}
 
+# maps tree-sitter node type names to simpler symbol type names
 SYMBOL_TYPES = {
     # Python
     "function_definition": "function",
@@ -45,9 +46,12 @@ def extract_symbols(
     file_path: str,
     content: str,
 ) -> list[Symbol]:
+    
+    # parse and return all top level symbols (functions, classes, etc.)
     extension = PurePosixPath(file_path).suffix
     parser = PARSERS.get(extension)
 
+    # unsupported language, nothing to parse
     if parser is None:
         return []
 
@@ -55,24 +59,19 @@ def extract_symbols(
     lines = content.splitlines()
 
     symbols: list[Symbol] = []
-    _walk_tree(
-        node=tree.root_node,
-        lines=lines,
-        symbols=symbols,
-    )
+
+    _walk_tree(node=tree.root_node, lines=lines, symbols=symbols)
     return symbols
 
 
-def _walk_tree(
-    node,
-    lines: list[str],
-    symbols: list[Symbol],
-) -> None:
+def _walk_tree(node, lines: list[str], symbols: list[Symbol]) -> None:
+
+    # recursively walk the AST and collect symbol nodes
     symbol_type = SYMBOL_TYPES.get(node.type)
 
+    # if this node is a symbol we care about, extract it
     if symbol_type:
         name_node = _get_name_node(node)
-
         if name_node:
             symbols.append(
                 Symbol(
@@ -84,20 +83,20 @@ def _walk_tree(
                 )
             )
 
+    # recurse into child nodes
     for child in node.children:
-        _walk_tree(
-            node=child,
-            lines=lines,
-            symbols=symbols,
-        )
+        _walk_tree(node=child, lines=lines, symbols=symbols)
 
 
 def _get_name_node(node):
-    # Tree-Sitter grammars standard field name
+    # find the identifier node that holds this symbol's name
+
+    # tree-Sitter grammars expose a "name" field on most declaration nodes
     name_node = node.child_by_field_name("name")
     if name_node is not None:
         return name_node
 
+    # fallback: scan children for any identifier like node
     for child in node.children:
         if child.type in {"identifier", "property_identifier", "type_identifier"}:
             return child
@@ -106,23 +105,31 @@ def _get_name_node(node):
 
 
 def _get_signature(node, lines: list[str]) -> str | None:
+    # extract just the declaration line(s) of a symbol, without the body
     start = node.start_point.row
     if start >= len(lines):
         return None
 
-    # Signatures reside in the declaration header (bound to 15 lines max)
+    # grab up to 15 lines starting from the symbol declaration
     end = min(node.end_point.row + 1, len(lines), start + 15)
-    declaration = " ".join(line.strip() for line in lines[start:end])
 
+    # take a slice of lines, strip whitespace from each, then join into one string
+    # e.g. ["def foo(", "  x: int", ") -> str:"] -> "def foo( x: int ) -> str:"
+    header_lines = lines[start:end]
+    declaration = " ".join(line.strip() for line in header_lines)
+
+    # walk character by character to find where the header ends and the body starts
+    # we track bracket depth so we don't cut inside a parameter list
     depth = 0
-    cut = len(declaration)
+    cut = len(declaration)  # default: keep the whole thing
 
     for i, ch in enumerate(declaration):
         if ch in "([":
-            depth += 1
+            depth += 1  # entering a bracket group
         elif ch in ")]":
-            depth -= 1
+            depth -= 1  # leaving a bracket group
         elif ch == "{" and depth == 0:
+            # opening brace at top level = start of function/class body (JS/TS style)
             cut = i
             break
         elif (
@@ -130,6 +137,7 @@ def _get_signature(node, lines: list[str]) -> str | None:
             and depth == 0
             and node.type in ("function_definition", "class_definition")
         ):
+            # colon at top level = end of Python def/class header
             cut = i + 1
             break
 
